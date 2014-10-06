@@ -7,7 +7,8 @@ var up = new THREE.Vector3(0, 0, 1),
     renderer = new THREE.WebGLRenderer(),
     elem = renderer.domElement,
     loading = document.querySelector('.loading'),
-    clock = new THREE.Clock();
+    clock = new THREE.Clock(),
+    stats = new Stats();
 
 renderer.setSize( width, height );
 document.body.appendChild( elem );
@@ -37,11 +38,16 @@ controls.update = function() {
 };
 scene.add( camera );
 
+stats.setMode(0);
+stats.domElement.style.position = 'absolute';
+stats.domElement.style.left = '0px';
+stats.domElement.style.top = '0px';
+document.body.appendChild( stats.domElement );
+
 document.addEventListener('mousemove', function(e) {
     if(!controls.freeze) {
         controls.mouseX = e.webkitMovementX;
         controls.mouseY = e.webkitMovementY;
-        //console.log(e.webkitMovementX, e.webkitMovementY);
     }
 }, false);
 
@@ -150,8 +156,12 @@ elem.ondragover = function (e) {
 };
 
 function render() {
+    stats.begin();
+
     requestAnimationFrame(render);
     controls.update(clock.getDelta());
     renderer.render(scene, camera);
+
+    stats.end();
 }
 render();
