@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Hammer.js</title>
+        <style>
+            body {
+                margin: 0;
+            }
+            canvas {
+                width: 100vw;
+                height: 100vh;
+            }
+            .loading {
+                font-family: sans-serif;
+                color: white;
+                font-size: 3em;
+                text-align: center;
+                position: fixed;
+                top: 0;
+                right: 0;
+                bottom: 0;
+                left: 0;
+            }
+            .loading p {
+                margin: 0;
+                position: absolute;
+                left: calc(50% - 2em);
+                top: calc(50% - 0.5em);
+                height: 1em;
+            }
+            .hidden {
+                display: none;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="loading hidden">
+            <p>Loading ...</p>
+        </div>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/three.js/r68/three.min.js"></script>
+        <script src="http://threejs.org/examples/js/controls/PointerLockControls.js"></script>
+        <script src="http://threejs.org/examples/js/controls/FirstPersonControls.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/randomcolor/0.1.1/randomColor.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/lodash.js/2.4.1/lodash.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/xregexp/2.0.0/xregexp-min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/xregexp/2.0.0/matchrecursive.min.js"></script>
+        <script src="parser.js"></script>
+        <script src="main.js"></script>
+    </body>
+</html>
