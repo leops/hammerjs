@@ -7,11 +7,12 @@ This is a VMF file viewer in JavaScript, it's supposed to display Hammer map
 files. It uses my vmf parser, and three.js. To load a map, simply drag the vmf
 file in the viewport.
 
-For the moment it only support rectangular brushes. This is because it doesn't
-do any plane intersection calculation, I just generate a quad from the 3 points
-of the plane instead. But who uses the clipping tool anyway ?
+It should be able to display correctly a basic map, however it doesn't handle
+oblique planes very well (the plane intersection calculation tends to generate
+too many vertices).
 
-I does support displacements, but with the same limitations as brushes.
+Displacements are supported, but with the same limitations as brushes (and the
+orientation is sometime wrong for horizontal ones).
 
 It should display the elements in wireframe with the same color as Hammer
 (using the editor.color property), but if a color isn't found it will use a
