@@ -8,7 +8,8 @@ var up = new THREE.Vector3(0, 0, 1),
 	elem = renderer.domElement,
 	loading = document.querySelector('.loading'),
 	clock = new THREE.Clock(),
-	stats = new Stats();
+	stats = new Stats(),
+	solids = [];
 
 renderer.setSize( width, height );
 document.body.appendChild( elem );
@@ -20,16 +21,16 @@ elem.addEventListener('click', function (e) {
 
 document.addEventListener('pointerlockchange', function(e) {
 	if ( document.pointerLockElement === elem || document.mozPointerLockElement === elem || document.webkitPointerLockElement === elem ) {
-		controls.freeze = false;
+		controls.enabled = true;
 	} else {
-		controls.freeze = true;
+		controls.enabled = false;
 	}
 }, false );
 
-
-controls.movementSpeed = 100;
-controls.lookSpeed = 10;
-controls.freeze = true;
+camera.up.set(0, -1, 0);
+controls.movementSpeed = 250;
+controls.lookSpeed = -10;
+controls.enabled = false;
 old = controls.update;
 controls.update = function() {
 	old.apply(controls, arguments);
@@ -72,7 +73,7 @@ function addDisplacement(displacement, material) {
 			var z = normal[(y * 3) + 2],
 				index = (y * 17) + x;
 			if(geometry.vertices[index])
-				geometry.vertices[index].setZ((z * row[y]) + elevation);
+				geometry.vertices[index].setZ(-((z * row[y]) + elevation));
 		}
 	}
 
@@ -81,59 +82,6 @@ function addDisplacement(displacement, material) {
 	scene.add(mesh);
 
     return mesh;
-}
-
-function planeIntersection(tri1, tri2, tri3) {
-	var normals = [tri1.normal(), tri2.normal(), tri3.normal()],
-		nMat = new THREE.Matrix3(
-			normals[0].x, normals[1].x, normals[2].x,
-			normals[0].y, normals[1].y, normals[2].y,
-			normals[0].z, normals[1].z, normals[2].z
-		),
-		determinant = nMat.determinant();
-
-	if(determinant)
-		return normals[1].clone().cross(
-			normals[2]).multiplyScalar(tri1.a.dot(normals[0])
-		).add(
-			normals[2].clone().cross(
-				normals[0]).multiplyScalar(tri2.a.dot(normals[1])
-			).add(
-				normals[0].clone().cross(
-					normals[1]).multiplyScalar(tri3.a.dot(normals[2])
-				)
-			)
-		).multiplyScalar(1.0 / determinant);
-}
-
-function combinations(set, k) {
-	var i, j, combs, head, tailcombs;
-
-	if (k > set.length || k <= 0) {
-		return [];
-	}
-
-	if (k == set.length) {
-		return [set];
-	}
-
-	combs = [];
-
-	if (k == 1) {
-		for (i = 0; i < set.length; i++) {
-			combs.push([set[i]]);
-		}
-	} else {
-		for (i = 0; i < set.length - k + 1; i++) {
-			head = set.slice(i, i+1);
-			tailcombs = combinations(set.slice(i + 1), k - 1);
-			for (j = 0; j < tailcombs.length; j++) {
-				combs.push(head.concat(tailcombs[j]));
-			}
-		}
-	}
-
-	return combs;
 }
 
 function planeMat(up) {
@@ -153,139 +101,173 @@ function planeMat(up) {
     );
 }
 
+// BUG: Using face.map seems to double the final array's length
+function fixLength (a) {
+	var b = [];
+	a.forEach(function(e, i) {
+		b[i] = e;
+	});
+	return b;
+}
+
 function triangulate(face) {
-    var up = (new THREE.Triangle(face[0], face[1], face[2])).normal(),
+    var Delaunay = require('./delaunay'),
+		up = (new THREE.Triangle(face[0], face[1], face[2])).normal(),
         planar;
 
     if(Math.abs(up.z) != 1) {
         var m = planeMat(up);
-        planar = face.map(function(f) {
+        planar = face.map(function(f, i) {
             var v = f.clone().applyMatrix3(m);
             return [v.x, v.z];
         });
     } else {
-        planar = face.map(function(v) {
+        planar = face.map(function(v, i) {
             return [v.x, v.y];
         });
     }
 
-    return Delaunay.triangulate(planar);
+    return Delaunay.triangulate(fixLength(planar));
 }
 
-elem.ondrop = function onDrop(e) {
-	e.preventDefault();
-	e.stopPropagation();
+function openFile(content) {
+	var vmfparser = require('./parser'),
+		map = vmfparser(content);
 
-	loading.classList.remove('hidden');
+	solids = map.world.solid.map(function(brush) {
+		var displacements = [],
+			color, mat, mesh;
 
-	var files = e.dataTransfer.files,
-		reader = new FileReader();
-	reader.readAsText(files[0]);
-	reader.onloadend = function(e) {
-		var map = vmfparser(reader.result);
+		if(brush.editor && brush.editor.color) {
+			var colors = brush.editor.color.split(' ');
+			color = new THREE.Color(colors[0] / 255, colors[1] / 255, colors[2] / 255);
+		}
 
-		var solids = map.world.solid.map(function(brush) {
-			var displacements = [],
-				color, mat, mesh;
+        mat = new THREE.MeshBasicMaterial({
+            color: !!color ? color : randomColor(),
+            wireframe: false,
+            side: THREE.DoubleSide
+        });
 
-			if(brush.editor && brush.editor.color) {
-				var colors = brush.editor.color.split(' ');
-				color = new THREE.Color(colors[0] / 255, colors[1] / 255, colors[2] / 255);
+		var planes = brush.side.map(function(side, index) {
+			var points = side.plane.split(/[()]/).map(function(point) {
+					if(point.match(/^[\s\t]*$/) === null) {
+						var elem = point.split(" "),
+							vector = new THREE.Vector3(Number(elem[0]), Number(elem[2]), Number(elem[1]));
+						return vector;
+					}
+				}).filter(function(e) {return !!e;}),
+				triangle = new THREE.Triangle(points[0], points[1], points[2]);
+
+			if(side.dispinfo) {
+				var id = displacements.push(side.dispinfo) - 1;
+                displacements[id].face = index;
+				displacements[id].tangent = triangle.normal();
 			}
 
-            mat = new THREE.MeshBasicMaterial({
-                color: !!color ? color : randomColor(),
-                wireframe: true,
-                side: THREE.DoubleSide
-            });
-
-			var triangles = brush.side.map(function(side, id) {
-				var points = side.plane.split(/[()]/).map(function(point) {
-						if(point.match(/^[\s\t]*$/) === null) {
-							var elem = point.split(" "),
-								vector = new THREE.Vector3(Number(elem[0]), Number(elem[2]), Number(elem[1]));
-							return vector;
-						}
-					}).filter(function(e) {return !!e;}),
-					triangle = new THREE.Triangle(points[0], points[1], points[2]);
-
-				if(side.dispinfo) {
-					var id = displacements.push(side.dispinfo) - 1;
-                    displacements[id].face = id;
-					displacements[id].tangent = triangle.normal();
-				}
-
-				return triangle;
-			});
-
-			var indexes = (function(x) {
-					var _results = [];
-					for (var _i = 0, _ref = x - 1; 0 <= _ref ? _i <= _ref : _i >= _ref; 0 <= _ref ? _i++ : _i--){ _results.push(_i); }
-					return _results;
-				})(triangles.length),
-				combs = combinations(indexes, 3);
-
-			var faces = {};
-            combs.forEach(function(comb) {
-				var point = planeIntersection(triangles[comb[0]], triangles[comb[1]], triangles[comb[2]]);
-
-                if(point) {
-                    comb.forEach(function(f) {
-                        if(!faces[f])
-                            faces[f] = [];
-                        faces[f].push(point);
-                    });
-                }
-			});
-
-			if(displacements.length == 0) {
-				var geom = new THREE.Geometry();
-
-				for(var i in faces) {
-					try {
-                        var face = faces[i],
-                            tris = triangulate(face);
-                        for(var i = 0; i < tris.length; i += 3) {
-                            var id = geom.vertices.push(face[tris[i]], face[tris[i + 1]], face[tris[i + 2]]),
-                                normal = (new THREE.Triangle(face[0], face[1], face[2])).normal()
-                            geom.faces.push(new THREE.Face3(id - 3, id - 2, id - 1, normal)); // triangles[i].normal()
-                        }
-                    } catch(e) {
-                        console.error(e);
-                    }
-                }
-
-				mesh = new THREE.Mesh( geom, mat );
-				scene.add(mesh);
-			} else {
-				displacements.forEach(function(displacement) {
-                    var face = faces[displacement.face],
-                        box = (new THREE.Box3()).setFromPoints(face),
-                        m = planeMat(displacement.tangent),
-                        min = box.min.clone().applyMatrix3(m),
-                        max = box.max.clone().applyMatrix3(m),
-                        start = displacement.startposition.split(/[\[\]]/)[0].split(' ');
-                    displacement.origin = new THREE.Vector3(start[0], start[1], start[2]);
-                    displacement.box = box;
-                    displacement.size = max.sub(min);
-                    addDisplacement(displacement, mat);
-				});
-			}
-
-			return mesh;
+			return triangle.plane();
 		});
 
-		loading.classList.add('hidden');
-	};
-};
+		var polylib = require('./polylib');
+		var faces = planes.map(function(base, i) {
+			var winding = polylib.BaseWindingForPlane(base);
+			planes.forEach(function(clip, j) {
+				if(i != j) {
+					winding = polylib.ChopWinding(winding, clip);
+				}
+			});
+			return fixLength(winding.p);
+		});
 
-elem.ondragover = function (e) {
-	e.stopPropagation();
-	e.preventDefault();
-	var dt = e.dataTransfer;
+		if(displacements.length == 0) {
+			var geom = new THREE.Geometry();
 
-	dt.effectAllowed = dt.dropEffect = 'move';
-};
+			faces.forEach(function(face, index) {
+				try {
+                    var tris = triangulate(face);
+                    for(var i = 0; i < tris.length; i += 3) {
+                        var id = geom.vertices.push(face[tris[i]], face[tris[i + 1]], face[tris[i + 2]]),
+                            normal = (new THREE.Triangle(face[0], face[1], face[2])).normal()
+                        geom.faces.push(new THREE.Face3(id - 3, id - 2, id - 1, normal));
+                    }
+                } catch(e) {
+                    console.error(e, index, face);
+                }
+            });
+
+			mesh = new THREE.Mesh( geom, mat );
+			scene.add(mesh);
+
+			return mesh;
+		} else {
+			return displacements.map(function(displacement) {
+				try {
+					var face = faces[displacement.face],
+	                    box = (new THREE.Box3()).setFromPoints(face),
+	                    m = planeMat(displacement.tangent),
+	                    min = box.min.clone().applyMatrix3(m),
+	                    max = box.max.clone().applyMatrix3(m),
+	                    start = displacement.startposition.split(/[\[\]]/)[0].split(' ');
+					displacement.origin = new THREE.Vector3(start[0], start[1], start[2]);
+	                displacement.box = box;
+	                displacement.size = max.sub(min);
+	                return addDisplacement(displacement, mat);
+				} catch(e) {
+					console.error(e, face);
+				}
+			});
+		}
+	});
+
+	loading.classList.add('hidden');
+}
+
+function setWireframe(w) {
+	scene.children.forEach(function(m) {
+		if(m.material)
+			m.material.wireframe = w;
+	})
+}
+
+function setupUI() {
+	var gui = require('nw.gui'),
+		win = gui.Window.get(),
+		menubar = new gui.Menu({ type: 'menubar' }),
+		file = new gui.Menu(),
+		view = new gui.Menu();
+
+	file.append(new gui.MenuItem({
+		label: 'Open',
+		click: function() {
+			var chooser = document.querySelector('#fileDialog');
+			chooser.addEventListener("change", function(evt) {
+				var fs = require('fs');
+				loading.classList.remove('hidden');
+				fs.readFile(this.value, function(err, data) {
+					if(err) return console.error(err);
+					openFile(data.toString());
+				});
+			}, false);
+			chooser.click();
+		}
+	}));
+
+	var isW = false;
+	view.append(new gui.MenuItem({
+		label: 'Toggle Wireframe',
+		click: function() {
+			if(isW)
+				isW = false;
+			else
+				isW = true;
+			setWireframe(isW);
+		}
+	}));
+
+	menubar.append(new gui.MenuItem({ label: 'File', submenu: file}));
+	menubar.append(new gui.MenuItem({ label: 'View', submenu: view}));
+	win.menu = menubar;
+}
 
 function render() {
 	stats.begin();
@@ -296,4 +278,5 @@ function render() {
 
 	stats.end();
 }
+setupUI();
 render();
