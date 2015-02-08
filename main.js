@@ -9,10 +9,17 @@ var up = new THREE.Vector3(0, 0, 1),
 	loading = document.querySelector('.loading'),
 	clock = new THREE.Clock(),
 	stats = new Stats(),
-	solids = [];
+	solids,
+	map;
 
-renderer.setSize( width, height );
-document.body.appendChild( elem );
+document.querySelector('#viewport').appendChild(elem);
+
+window.addEventListener("resize", function(e) {
+	elem.style.width = "100%";
+	elem.style.height = "100vh";
+	renderer.setSize(elem.offsetWidth, elem.offsetHeight);
+});
+window.dispatchEvent(new Event('resize'));
 
 elem.addEventListener('click', function (e) {
 	elem.requestPointerLock = elem.requestPointerLock || elem.mozRequestPointerLock || elem.webkitRequestPointerLock;
@@ -130,21 +137,43 @@ function triangulate(face) {
     return Delaunay.triangulate(fixLength(planar));
 }
 
+function setVisgroup(id, show) {
+	solids.forEach(function(s) {
+		if(s.editor.visgroupid === id)
+			if(s.mesh)
+				s.mesh.visible = show;
+	});
+}
+
+function getVisgroup(id) {
+	var l = map.visgroups.visgroup.filter(function(e) {return e.visgroupid === id;});
+	if(l)
+		return l[0];
+	else
+		return null;
+}
+
 function openFile(content) {
-	var vmfparser = require('./parser'),
-		map = vmfparser(content);
+	var vmfparser = require('./parser');
+	map = vmfparser(content);
 
 	solids = map.world.solid.map(function(brush) {
 		var displacements = [],
 			color, mat, mesh;
 
-		if(brush.editor && brush.editor.color) {
-			var colors = brush.editor.color.split(' ');
-			color = new THREE.Color(colors[0] / 255, colors[1] / 255, colors[2] / 255);
+		if(brush.editor) {
+			if(brush.editor.visgroupid) {
+				color = getVisgroup(brush.editor.visgroupid).color.split(' ');
+			} else if(brush.editor.color) {
+				color = brush.editor.color.split(' ');
+			}
+			color = new THREE.Color(color[0] / 255, color[1] / 255, color[2] / 255);
+		} else {
+			color = randomColor();
 		}
 
         mat = new THREE.MeshBasicMaterial({
-            color: !!color ? color : randomColor(),
+            color: color,
             wireframe: false,
             side: THREE.DoubleSide
         });
@@ -197,10 +226,9 @@ function openFile(content) {
 
 			mesh = new THREE.Mesh( geom, mat );
 			scene.add(mesh);
-
-			return mesh;
+			brush.mesh = mesh;
 		} else {
-			return displacements.map(function(displacement) {
+			brush.displacements = displacements.map(function(displacement) {
 				try {
 					var face = faces[displacement.face],
 	                    box = (new THREE.Box3()).setFromPoints(face),
@@ -217,6 +245,21 @@ function openFile(content) {
 				}
 			});
 		}
+		return brush;
+	});
+
+	var container = document.querySelector('#visgroups');
+	map.visgroups.visgroup.forEach(function(v) {
+		var e = document.createElement('li');
+		var cb = document.createElement('input')
+		cb.type = "checkbox";
+		cb.checked = true;
+		cb.addEventListener("change", function() {
+			setVisgroup(v.visgroupid, cb.checked);
+		});
+		e.appendChild(cb);
+		e.appendChild(document.createTextNode(v.name));
+		container.appendChild(e);
 	});
 
 	loading.classList.add('hidden');
@@ -252,16 +295,37 @@ function setupUI() {
 		}
 	}));
 
-	var isW = false;
 	view.append(new gui.MenuItem({
 		label: 'Toggle Wireframe',
-		click: function() {
-			if(isW)
-				isW = false;
-			else
-				isW = true;
-			setWireframe(isW);
-		}
+		click: (function() {
+			var isW = false;
+			return function() {
+				if(isW)
+					isW = false;
+				else
+					isW = true;
+				setWireframe(isW);
+			};
+		})()
+	}));
+
+
+	view.append(new gui.MenuItem({
+		label: 'Toggle Visgroup menu',
+		click: (function() {
+			var show = true,
+				list = document.querySelector('#visgroups');
+			return function() {
+				if(show) {
+					list.parentElement.classList.add('hidden');
+					show = false;
+				} else {
+					list.parentElement.classList.remove('hidden');
+					show = true;
+				}
+				window.dispatchEvent(new Event('resize'));
+			};
+		})()
 	}));
 
 	menubar.append(new gui.MenuItem({ label: 'File', submenu: file}));
